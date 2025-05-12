@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Text, View, StyleSheet, TouchableOpacity, Dimensions, Platform, StatusBar, ActivityIndicator } from "react-native";
+import { Text, View, StyleSheet, TouchableOpacity, Dimensions, Platform, ActivityIndicator } from "react-native";
 import { useState, useEffect } from 'react';
 import {
   Camera,
@@ -27,13 +27,10 @@ import LanguageModelPicker, { ModelItem } from './modelPopUp';
 import { supabase } from './utils/supabase';
 import { listDownloadedModels, downloadModelFromSupabase, readLocalModelMeta, ensureModelsDir } from './utils/fileUtils';
 import type * as Worklets from 'react-native-worklets-core'
-//import { StatusBar } from 'expo-status-bar';
 
 
 const windowWidth = Dimensions.get('screen').width;
 const windowHeight = Dimensions.get('screen').height;
-
-const FRAME_INTERVAL = 5;
 
 type FullModelItem = ModelItem & {
   id: string;
@@ -61,10 +58,11 @@ export default function Index() {
   const device = useCameraDevice(deviceDir);
 
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [classificationOn, setClassification] = useState(false);
   const [models, setModels] = useState<FullModelItem[]>([]);
   const [currentModel, setCurrentModel] = useState<TensorflowModel | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [selectedModelId, setSelectedModelId] = useState<string>('1');
 
   const { resize } = useResizePlugin()
 
@@ -72,38 +70,57 @@ export default function Index() {
 
   const [translation, setTranslation] = useState('');
   const passTranslation = useRunOnJS((translation) => {
-    setTranslation(translation);
+    setTranslation(labels[translation]);
   });
 
 
   const [labels, setLabels] = useState<string[]>([]);
 
   const loadModel = async (modelName: string) => {
-    console.log("▶️ loadModel called with:", modelName);
+    console.log("Загружается модель:", modelName);
+    setLoading(true);
 
     const modelPath = `${FileSystem.documentDirectory}models/${modelName}/model.tflite`;
     const labelsPath = `${FileSystem.documentDirectory}models/${modelName}/labels.txt`;
-    
+    const metaPath = `${FileSystem.documentDirectory}models/${modelName}/meta.json`;
+
 
     const modelInfo = await FileSystem.getInfoAsync(modelPath);
-    if (!modelInfo.exists) {
+    const labelInfo = await FileSystem.getInfoAsync(labelsPath);
+    const metaInfo = await FileSystem.getInfoAsync(metaPath);
+    if (!modelInfo.exists || !labelInfo.exists || !metaInfo.exists) {
+      console.log("Загружается модель с сервера: ", modelName)
       await downloadModelFromSupabase(modelName);
     }
-  
-    const model = await loadTensorflowModel({ url: modelPath });
-    if (model){
-      setCurrentModel(model);
-      console.log(`Model loaded! Shape:\n${modelToString(model)}]`);
-      
+    try {
+      const model = await loadTensorflowModel({ url: modelPath }, 'android-gpu');
+      if (model) {
+        setCurrentModel(model);
+        console.log(`Модель загружена:\n${modelToString(model)}]`);
+      }
+      else {
+        console.log("Модель не найдена");
+        setCurrentModel(null);
+      };
     }
-    else{
-      console.log("Model is undefined");
-      setCurrentModel(null);
-    };
+    catch (e) {
+      console.log("Ошибка при gpu delegate\n", e);
+      const model = await loadTensorflowModel({ url: modelPath });
+      if (model) {
+        setCurrentModel(model);
+        console.log(`Модель загружена:\n${modelToString(model)}]`);
+      }
+      else {
+        console.log("Модель не найдена");
+        setCurrentModel(null);
+      };
+    }
+    
     
     const labelsContent = await FileSystem.readAsStringAsync(labelsPath);
     setLabels(labelsContent.split('\n'));
-    console.log("Labels loaded!");
+    console.log("Метки загружены");
+    setLoading(false);
   };
 
   const loadModelList = async () => {
@@ -193,6 +210,7 @@ export default function Index() {
         await ensureModelsDir();
         await loadModelList();
         loadModel("MobileNetV2-TSM-Bukva");
+        setSelectedModelId('1');
       } catch (e) {
         console.warn(e);
       } finally {
@@ -213,17 +231,25 @@ export default function Index() {
     setDeviceDir(current => (current === 'back' ? 'front' : 'back'));
   }
 
-  const classificationContext = Worklets.createContext('classification thread');
+  useEffect(() => {
+    if (!pickerVisible && currentModel != null && labels.length > 0 && !loading) {
+      setClassification(true)
+    }
+    else{
+      setClassification(false)
+    }
+  },[pickerVisible, currentModel, labels, loading]
+  )
+
 
   const frameProcessor = useFrameProcessor(
     (frame) => {
       'worklet'
 
-      if (!pickerVisible && currentModel != null && labels.length > 0 && !loading) {
-
+      if (classificationOn) {
         if (global.__frameBuffer == null) {
 
-          global.__frameBuffer = new Uint8Array(8 * 224 * 224 * 3);
+          global.__frameBuffer = new Float32Array(8 * 224 * 224 * 3);
           global.__writeIndex = 0;
         }
 
@@ -235,7 +261,7 @@ export default function Index() {
               height: 224,
             },
             pixelFormat: 'rgb',
-            dataType: 'uint8',
+            dataType: 'float32',
           });
 
           const offset = global.__writeIndex * 224 * 224 * 3;
@@ -246,25 +272,25 @@ export default function Index() {
           global.__writeIndex = (global.__writeIndex + 1) % 8;
 
           if (global.__writeIndex === 0) {
-            classificationContext.runAsync((buffer) => {
-              'worklet'
-              console.log("Running classification");
-              //console.log(global.__frameBuffer);
-              const result = currentModel.runSync([buffer])[0];
-              const maxEntry = parseInt(Object.entries(result).reduce((max, entry) => {
+            console.log("Запуск классификации");
+              const result = currentModel.runSync([global.__frameBuffer])[0];
+              const maxEntry = Object.entries(result).reduce((max, entry) => {
                 return entry[1] > max[1] ? entry : max;
-              })[0]);
+              });
+              if (maxEntry[1] > 0.4){
+                const translation_value = parseInt(maxEntry[0]);
+                passTranslation(translation_value);
+              }
+              else{
+                passTranslation(0);
+              }
 
-              const translation_value = labels[maxEntry];
-              console.log(translation_value);
-              passTranslation(translation_value);
-            }, global.__frameBuffer)
           }
         }
         )
       }
     },
-    [currentModel, labels, loading]
+    [classificationOn, currentModel]
   );
 
   if (loading) {
@@ -277,7 +303,6 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <StatusBar hidden={true} />
       {hasPermission && device != null ? (
         <Camera
           device={device}

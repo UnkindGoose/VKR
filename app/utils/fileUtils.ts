@@ -9,8 +9,8 @@ const MODELS_DIR = FileSystem.documentDirectory + 'models/';
 
 const initial_models = [{
   name: 'MobileNetV2-TSM-Bukva',
-  modelAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/MobileNetV2-TSM-Bukva.tflite'),
-  labelsAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/MobileNetV2-TSM-Bukva.txt'),
+  modelAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/model.tflite'),
+  labelsAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/labels.txt'),
   metaAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/meta.json'),
 }];
 
@@ -80,7 +80,12 @@ export async function ensureModelsDir() {
 
 export async function downloadModelFromSupabase(modelName: string): Promise<void> {
   const modelDir = `${MODELS_DIR}${modelName}/`;
-  await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
+  const info = await FileSystem.getInfoAsync(modelDir);
+
+  if (!info.exists){
+    await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
+    console.log("Создание папки для модели, ", modelName);
+  }
 
   const files = ['model.tflite', 'labels.txt', 'meta.json'];
   for (const file of files) {
@@ -119,7 +124,7 @@ export async function readLocalModelMeta(modelFolder: string): Promise<{
     const metaPath = `${MODELS_DIR}${modelFolder}/meta.json`;
     const info = await FileSystem.getInfoAsync(metaPath);
     if (!info.exists) {
-      console.log(`Meta file for ${modelFolder} doesn't exist`)
+      console.log(`Мета файл ${modelFolder} не найден`)
       return null;
     }
 

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "vkrFinal",
-    "slug": "vkrFinal",
+    "name": "HandyText",
+    "slug": "HandyText",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -20,10 +20,9 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "android.permission.CAMERA",
         "android.permission.CAMERA"
       ],
-      "package": "com.dima_zhogin.vkrFinal"
+      "package": "com.dima_zhogin.HandyText"
     },
     "web": {
       "bundler": "metro",
@@ -50,12 +49,23 @@
       [
         "react-native-fast-tflite",
         {
-          "enableAndroidGpuLibraries": ["libOpenCL-pixel.so", "libGLES_mali.so"]
+          "enableAndroidGpuLibraries": [
+            "libOpenCL-pixel.so",
+            "libGLES_mali.so"
+          ]
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "52358173-5963-4e8c-b469-4151490a2d82"
+      }
     }
   }
 }

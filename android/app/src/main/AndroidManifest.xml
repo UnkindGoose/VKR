@@ -26,7 +26,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="myapp"/>
-        <data android:scheme="com.dima_zhogin.vkrFinal"/>
+        <data android:scheme="com.dima_zhogin.HandyText"/>
       </intent-filter>
     </activity>
     <uses-native-library android:name="libOpenCL.so" android:required="false"/>
