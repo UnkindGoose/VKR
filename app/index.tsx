@@ -26,7 +26,7 @@ import NetInfo from '@react-native-community/netinfo';
 import LanguageModelPicker, { ModelItem } from './modelPopUp';
 import { supabase } from './utils/supabase';
 import { listDownloadedModels, downloadModelFromSupabase, readLocalModelMeta, ensureModelsDir } from './utils/fileUtils';
-import type * as Worklets from 'react-native-worklets-core'
+import Worklets from 'react-native-worklets-core'
 
 
 const windowWidth = Dimensions.get('screen').width;
@@ -241,6 +241,24 @@ export default function Index() {
   },[pickerVisible, currentModel, labels, loading]
   )
 
+  const inferenceContext = Worklets.createContext('inference-thread');
+
+  const runInference = (frameBuffer) => {
+    'worklet'
+    console.log("run async");
+    const result = currentModel.runSync([frameBuffer])[0];
+    const maxEntry = Object.entries(result).reduce((max, entry) => {
+      return entry[1] > max[1] ? entry : max;
+    });
+    if (maxEntry[1] > 0.4) {
+      const translation_value = parseInt(maxEntry[0]);
+      passTranslation(translation_value);
+    }
+    else {
+      passTranslation(0);
+    }
+  }
+
 
   const frameProcessor = useFrameProcessor(
     (frame) => {
@@ -273,17 +291,18 @@ export default function Index() {
 
           if (global.__writeIndex === 0) {
             console.log("Запуск классификации");
-              const result = currentModel.runSync([global.__frameBuffer])[0];
-              const maxEntry = Object.entries(result).reduce((max, entry) => {
-                return entry[1] > max[1] ? entry : max;
-              });
-              if (maxEntry[1] > 0.4){
-                const translation_value = parseInt(maxEntry[0]);
-                passTranslation(translation_value);
-              }
-              else{
-                passTranslation(0);
-              }
+            inferenceContext.runAsync(runInference(global.__frameBuffer));
+            // const result = currentModel.runSync([global.__frameBuffer])[0];
+            // const maxEntry = Object.entries(result).reduce((max, entry) => {
+            //   return entry[1] > max[1] ? entry : max;
+            // });
+            // if (maxEntry[1] > 0.4) {
+            //   const translation_value = parseInt(maxEntry[0]);
+            //   passTranslation(translation_value);
+            // }
+            // else {
+            //   passTranslation(0);
+            // }
 
           }
         }

@@ -1,4 +1,3 @@
-// supabase/models.ts
 import { createClient } from '@supabase/supabase-js';
 import * as FileSystem from 'expo-file-system';
 

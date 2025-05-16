@@ -1,4 +1,3 @@
-// lib/fileUtils.ts
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from './supabase';
