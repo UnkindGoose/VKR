@@ -1,7 +1,9 @@
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from './supabase';
+import NetInfo from '@react-native-community/netinfo';
 import meta from '../../assets/models/MobileNetV2-TSM-Bukva/meta.json';
+import { ModelItem } from '../modelPopUp';
 
 
 const MODELS_DIR = FileSystem.documentDirectory + 'models/';
@@ -12,6 +14,13 @@ const initial_models = [{
   labelsAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/labels.txt'),
   metaAsset: require('../../assets/models/MobileNetV2-TSM-Bukva/meta.json'),
 }];
+
+type FullModelItem = ModelItem & {
+  id: string;
+  name: string;
+  language: string;
+  downloaded: boolean;
+};
 
 
 export async function ensureModelsDir() {
@@ -136,3 +145,81 @@ export async function readLocalModelMeta(modelFolder: string): Promise<{
   }
 }
 
+
+export async function loadModelList() {
+    try {
+
+      const netState = await NetInfo.fetch();
+      const isOnline = netState.isConnected && netState.isInternetReachable;
+  
+      const localFolders = await listDownloadedModels();
+      console.log(localFolders);
+
+      const localMetas = await Promise.all(
+        localFolders.map(async (folder) => {
+          const meta = await readLocalModelMeta(folder);
+          return meta
+            ? {
+                folder,
+                id: meta.id,
+                language: meta.language,
+                name: folder,
+              }
+            : null;
+        })
+      );
+  
+      const localModels = localMetas.filter(
+        (m): m is { folder: string; id: string; language: string; name: string } => m !== null
+      );
+  
+      let combined: FullModelItem[] = [];
+  
+      if (isOnline) {
+
+        const { data: serverModels, error } = await supabase
+          .from('Models')
+          .select('id, model_language, model_name');
+  
+        if (error) throw error;
+  
+        combined = serverModels.map((sm) => ({
+          id: sm.id,
+          name: sm.model_name,
+          language: sm.model_language,
+          downloaded: localFolders.includes(sm.model_name),
+        }));
+  
+        localModels.forEach((lm) => {
+          if (!combined.some((cm) => cm.id === lm.id)) {
+            combined.push({
+              id: lm.id,
+              name: lm.name,
+              language: lm.language,
+              downloaded: true,
+            });
+          }
+        });
+      } else {
+        combined = localModels.map((lm) => ({
+          id: lm.id,
+          name: lm.name,
+          language: lm.language,
+          downloaded: true,
+        }));
+      }
+  
+      combined.sort((a, b) => {
+        if (a.downloaded !== b.downloaded) {
+          return a.downloaded ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  
+      return combined;
+    } catch (e) {
+      console.error('Ошибка при загрузке моделей:', e);
+    } finally {
+      console.log("Список моделей готов");
+    }
+  };
