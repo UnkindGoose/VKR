@@ -75,11 +75,9 @@ export async function ensureModelsDir() {
         if (info.exists) break;
         await new Promise(res => setTimeout(res, 100));
       }
-
-      console.log(`Модель ${model.name} успешно установлена`);
     }
     else {
-      console.log(`Модель ${model.name} уже существует`);
+      continue
     }
   }
 }
@@ -87,31 +85,36 @@ export async function ensureModelsDir() {
 
 
 export async function downloadModelFromSupabase(modelName: string): Promise<void> {
-  const modelDir = `${MODELS_DIR}${modelName}/`;
-  const info = await FileSystem.getInfoAsync(modelDir);
+  try {
+    const modelDir = `${MODELS_DIR}${modelName}/`;
+    const info = await FileSystem.getInfoAsync(modelDir);
 
-  if (!info.exists){
-    await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
-    console.log("Создание папки для модели, ", modelName);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
+      console.log("Создание папки для модели, ", modelName);
+    }
+
+    const files = ['model.tflite', 'labels.txt', 'meta.json'];
+    for (const file of files) {
+      const { data, error } = await supabase.storage
+        .from('models')
+        .download(`${modelName}/${file}`);
+      if (error || !data) throw new Error(`Ошибка загрузки файла ${file}: ${error?.message}`);
+
+      const fileUri = `${modelDir}${file}`;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result?.toString().split(',')[1];
+        if (base64) {
+          await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+        }
+      };
+      reader.readAsDataURL(data);
+    }
+
+  } catch(e) {
   }
 
-  const files = ['model.tflite', 'labels.txt', 'meta.json'];
-  for (const file of files) {
-    const { data, error } = await supabase.storage
-      .from('models')
-      .download(`${modelName}/${file}`);
-    if (error || !data) throw new Error(`Ошибка загрузки файла ${file}: ${error?.message}`);
-
-    const fileUri = `${modelDir}${file}`;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result?.toString().split(',')[1];
-      if (base64) {
-        await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-      }
-    };
-    reader.readAsDataURL(data);
-  }
 }
 
 
@@ -146,80 +149,98 @@ export async function readLocalModelMeta(modelFolder: string): Promise<{
 }
 
 
-export async function loadModelList() {
-    try {
+export async function loadModelList(timeoutDuration = 10000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 
-      const netState = await NetInfo.fetch();
-      const isOnline = netState.isConnected && netState.isInternetReachable;
-  
-      const localFolders = await listDownloadedModels();
-      console.log(localFolders);
-
-      const localMetas = await Promise.all(
-        localFolders.map(async (folder) => {
-          const meta = await readLocalModelMeta(folder);
-          return meta
-            ? {
-                folder,
-                id: meta.id,
-                language: meta.language,
-                name: folder,
-              }
-            : null;
-        })
-      );
-  
-      const localModels = localMetas.filter(
-        (m): m is { folder: string; id: string; language: string; name: string } => m !== null
-      );
-  
-      let combined: FullModelItem[] = [];
-  
-      if (isOnline) {
-
-        const { data: serverModels, error } = await supabase
-          .from('Models')
-          .select('id, model_language, model_name');
-  
-        if (error) throw error;
-  
-        combined = serverModels.map((sm) => ({
-          id: sm.id,
-          name: sm.model_name,
-          language: sm.model_language,
-          downloaded: localFolders.includes(sm.model_name),
-        }));
-  
-        localModels.forEach((lm) => {
-          if (!combined.some((cm) => cm.id === lm.id)) {
-            combined.push({
-              id: lm.id,
-              name: lm.name,
-              language: lm.language,
-              downloaded: true,
-            });
-          }
-        });
-      } else {
-        combined = localModels.map((lm) => ({
-          id: lm.id,
-          name: lm.name,
-          language: lm.language,
-          downloaded: true,
-        }));
-      }
-  
-      combined.sort((a, b) => {
-        if (a.downloaded !== b.downloaded) {
-          return a.downloaded ? -1 : 1;
+  const localFolders = await listDownloadedModels();
+  const localMetas = await Promise.all(
+    localFolders.map(async (folder) => {
+      const meta = await readLocalModelMeta(folder);
+      return meta
+        ? {
+          folder,
+          id: meta.id,
+          language: meta.language,
+          name: folder,
         }
-        return a.name.localeCompare(b.name);
+        : null;
+    })
+  );
+  const localModels = localMetas.filter(
+    (m): m is { folder: string; id: string; language: string; name: string } => m !== null
+  );
+
+  let combined: FullModelItem[] = [];
+
+  try {
+
+    const netState = await NetInfo.fetch();
+    const isOnline = netState.isConnected && netState.isInternetReachable;
+
+    if (isOnline) {
+
+      const { data: serverModels, error } = await supabase
+        .from('Models')
+        .select('id, model_language, model_name')
+        .abortSignal(controller.signal);
+
+      if (error) throw error;
+
+      combined = serverModels.map((sm) => ({
+        id: sm.id,
+        name: sm.model_name,
+        language: sm.model_language,
+        downloaded: localFolders.includes(sm.model_name),
+      }));
+
+      localModels.forEach((lm) => {
+        if (!combined.some((cm) => cm.id === lm.id)) {
+          combined.push({
+            id: lm.id,
+            name: lm.name,
+            language: lm.language,
+            downloaded: true,
+          });
+        }
       });
-  
-      return combined;
-    } catch (e) {
-      console.error('Ошибка при загрузке моделей:', e);
-    } finally {
-      console.log("Список моделей готов");
+    } else {
+      combined = localModels.map((lm) => ({
+        id: lm.id,
+        name: lm.name,
+        language: lm.language,
+        downloaded: true,
+      }));
     }
-  };
+
+    combined.sort((a, b) => {
+      if (a.downloaded !== b.downloaded) {
+        return a.downloaded ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    clearTimeout(timeoutId);
+    return combined;
+  } catch (e) {
+    clearTimeout(timeoutId);
+
+    combined = localModels.map((lm) => ({
+      id: lm.id,
+      name: lm.name,
+      language: lm.language,
+      downloaded: true,
+    }));
+
+    combined.sort((a, b) => {
+      if (a.downloaded !== b.downloaded) {
+        return a.downloaded ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return combined;
+  } finally {
+    console.log("Список моделей готов");
+  }
+};

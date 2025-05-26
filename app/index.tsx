@@ -23,10 +23,6 @@ import { loadModelList, downloadModelFromSupabase, ensureModelsDir } from './uti
 import { ModelItem } from './modelPopUp';
 
 
-const windowWidth = Dimensions.get('screen').width;
-const windowHeight = Dimensions.get('screen').height;
-
-
 function tensorToString(tensor: Tensor): string {
   return `\n  - ${tensor.dataType} ${tensor.name}[${tensor.shape}]`
 }
@@ -38,6 +34,9 @@ function modelToString(model: TensorflowModel): string {
     `- Outputs: ${model.outputs.map(tensorToString).join('')}`
   )
 }
+
+const windowWidth = Dimensions.get('screen').width;
+const windowHeight = Dimensions.get('screen').height;
 
 type FullModelItem = ModelItem & {
   id: string;
@@ -58,6 +57,7 @@ export default function Index() {
   const [currentModel, setCurrentModel] = useState<TensorflowModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedModelId, setSelectedModelId] = useState<string>('1');
+  const [fpsGraph, setFpsGraph] = useState(false);
 
   const { resize } = useResizePlugin()
 
@@ -70,6 +70,7 @@ export default function Index() {
 
 
   const [labels, setLabels] = useState<string[]>([]);
+
 
   const loadModel = async (modelName: string) => {
     console.log("Загружается модель:", modelName);
@@ -90,10 +91,8 @@ export default function Index() {
       const model = await loadTensorflowModel({ url: modelPath }, 'android-gpu');
       if (model) {
         setCurrentModel(model);
-        console.log(`Модель загружена:\n${modelToString(model)}]`);
       }
       else {
-        console.log("Модель не найдена");
         setCurrentModel(null);
       };
     }
@@ -102,10 +101,8 @@ export default function Index() {
       const model = await loadTensorflowModel({ url: modelPath });
       if (model) {
         setCurrentModel(model);
-        console.log(`Модель загружена:\n${modelToString(model)}]`);
       }
       else {
-        console.log("Модель не найдена");
         setCurrentModel(null);
       };
     }
@@ -143,6 +140,10 @@ export default function Index() {
 
   function toggleCameraFacing() {
     setDeviceDir(current => (current === 'back' ? 'front' : 'back'));
+  }
+
+  function toggleFpsGraph() {
+    setFpsGraph(current => (current === false ? true : false));
   }
 
   useEffect(() => {
@@ -187,7 +188,7 @@ export default function Index() {
     const maxEntry = Object.entries(result[0]).reduce((max, entry) => {
       return entry[1] > max[1] ? entry : max;
     });
-    if (maxEntry[1] > 0.4 && maxEntry[0] != "0") {
+    if (maxEntry[1] > 0.3 && maxEntry[0] != "0") {
       const translation_value = parseInt(maxEntry[0]);
       passTranslation(translation_value);
     }
@@ -268,7 +269,7 @@ export default function Index() {
           isActive={true}
           frameProcessor={frameProcessor}
           pixelFormat="rgb"
-          enableFpsGraph={true}
+          enableFpsGraph={fpsGraph}
         />
 
       ) : (
@@ -300,8 +301,10 @@ export default function Index() {
           }
         }}
         onClose={() => setPickerVisible(false)}
+        onShow={() => toggleFpsGraph()}
       />
     </View>
+    
   );
 }
 

@@ -22,6 +22,7 @@ interface LanguageModelPickerProps {
   selectedModelId: string;
   onSelect: (modelId: string) => void;
   onClose: () => void;
+  onShow: () => void;
 }
 
 const LanguageModelPicker: React.FC<LanguageModelPickerProps> = ({
@@ -30,6 +31,7 @@ const LanguageModelPicker: React.FC<LanguageModelPickerProps> = ({
   selectedModelId,
   onSelect,
   onClose,
+  onShow,
 }) => {
   const renderItem = ({ item }: { item: ModelItem }) => {
     const isSelected = item.id === selectedModelId;
@@ -71,8 +73,11 @@ const LanguageModelPicker: React.FC<LanguageModelPickerProps> = ({
             renderItem={renderItem}
             extraData={selectedModelId}
           />
+          <TouchableOpacity style={styles.closeButton} onPress={onShow}>
+            <Text style={styles.ButtonText}>Показать FPS</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeButtonText}>Закрыть</Text>
+            <Text style={styles.ButtonText}>Закрыть</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -135,7 +140,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
-  closeButtonText: {
+
+  ButtonText: {
     fontSize: 16,
     color: '#007AFF',
   },
